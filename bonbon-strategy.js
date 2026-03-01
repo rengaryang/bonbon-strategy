@@ -1,25 +1,4 @@
-const hacstag = new URL(import.meta.url).searchParams.get('hacstag');
-
-const { defaultConfig } = await import(
-  `./bonbon-strategy-config.js?hacstag=${hacstag}`
-);
-const { css, getStyles } = await import(
-  `./bonbon-strategy-styles.js?hacstag=${hacstag}`
-);
-const {
-  getWeatherIcon,
-  androidGesturesFix,
-  mergeDeep,
-  getAreaColors,
-  getColorsFromColor,
-} = await import(`./bonbon-strategy-utils.js?hacstag=${hacstag}`);
-const { createButtonCard, createSeparatorCard, createGrid, createSubButton } =
-  await import(`./bonbon-strategy-builders.js?hacstag=${hacstag}`);
-
-const { resolveEntity, resolveEntities, onFloor, inArea, hasLabel } =
-  await import(`./bonbon-strategy-entities.js?hacstag=${hacstag}`);
-
-
+console.warn("🟢🟢🟢 BONBON V4 DEVICE-GROUP IS LOADED 🟢🟢🟢");
 const hacstag = new URL(import.meta.url).searchParams.get('hacstag');
 
 const { defaultConfig } = await import(
@@ -317,6 +296,7 @@ export class BonbonStrategy {
       const deviceGroupEnabled = areaViewConfig?.device_group !== false;
 
       console.log(`[bonbon-strategy] device_group=${deviceGroupEnabled}`);
+      console.warn('🟢🟢🟢 BONBON V4 DEVICE-GROUP IS LOADED 🟢🟢🟢');
 
       const homeSections = Object.keys(config?.views?.bonbon_home?.sections)
         .filter((key) => {
@@ -1105,7 +1085,21 @@ export class BonbonStrategy {
                   type: 'sections',
                   max_columns: config?.views?.bonbon_area?.max_columns || 1,
                   sections: applySectionColumns(
-                    areaSections,
+                    [
+                      // DEBUG: Diagnostic section to confirm V4 is loaded
+                      {
+                        cards: [
+                          {
+                            type: 'custom:bubble-card',
+                            card_type: 'separator',
+                            name: '✅ V4 DeviceGroup Active',
+                            icon: 'mdi:check-decagram',
+                          },
+                        ],
+                        bonbon_column: 'auto',
+                      },
+                      ...areaSections,
+                    ],
                     config?.views?.bonbon_area?.max_columns || 1,
                   ),
                 });
