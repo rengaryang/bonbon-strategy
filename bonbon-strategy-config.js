@@ -63,6 +63,11 @@ export const defaultConfig = {
     },
     bonbon_area: {
       max_columns: 1,
+      // ===== NEW: Device merge configuration =====
+      device_merge: true, // Enable device merge (default: true)
+      device_merge_mode: 'primary', // 'primary' | 'expanded' | 'none'
+      device_merge_cross_section: false, // Cross-section merge (advanced)
+      // ============================================
       sections: {
         bonbon_environment: {
           name: 'Environment',
@@ -88,6 +93,7 @@ export const defaultConfig = {
           max_columns: 2,
           show_area_lights_toggle: 'always',
           disabled: false,
+          // device_merge_mode: 'primary', // Per-section override (optional)
         },
         bonbon_switches: {
           name: 'Switches',

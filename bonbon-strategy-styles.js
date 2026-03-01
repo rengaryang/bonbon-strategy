@@ -167,6 +167,53 @@ export const getStyles = (config, isDark) => {
       box-shadow: 0 2px 6px rgba(0, 0, 0, ${isDark ? '0.2' : '0.05'});
     }
   `;
+
+  // ===== NEW: Device merged card styles =====
+  const deviceMergedBase = css`
+    /* Sub-buttons for secondary entities in merged cards */
+    .bubble-sub-button-container .bubble-sub-button {
+      background-color: ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'};
+      border-radius: var(--bubble-sub-button-border-radius);
+      padding: 2px 6px;
+    }
+    .bubble-sub-button-container .bubble-sub-button .icon-with-state {
+      gap: 2px;
+    }
+    /* Subtle left border accent to indicate merged device */
+    .bubble-button-container:not(.bubble-buttons-container) {
+      position: relative;
+    }
+    .bubble-button-container:not(.bubble-buttons-container)::before {
+      content: '';
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      left: 0;
+      width: 3px;
+      border-radius: 0 2px 2px 0;
+      background: var(--bonbon-primary-accent-color);
+      opacity: 0.35;
+      z-index: 1;
+    }
+    /* Bottom sub-buttons (sensor row in expanded mode) */
+    .bubble-sub-button-bottom-container {
+      pointer-events: none;
+    }
+    .bubble-sub-button-bottom-container .bubble-sub-button {
+      background: transparent;
+      padding: 0 4px;
+      font-size: 12px;
+      opacity: 0.85;
+    }
+    .bubble-sub-button-bottom-container .bubble-sub-button:first-child {
+      margin-left: 42px;
+    }
+    .bubble-sub-button-bottom-container .bubble-sub-button-group {
+      gap: 0;
+    }
+  `;
+  // ============================================
+
   const styles = {
     cardmodGlobal: globalStyles,
     bubbleGlobal:
@@ -417,6 +464,9 @@ export const getStyles = (config, isDark) => {
           display: none !important;
         }
       `,
+    // ===== NEW: Device merged card style =====
+    bubbleDeviceMerged: deviceMergedBase,
+    // ==========================================
     environmentGraphCard: css`
       ${haCardBase}
       :host {

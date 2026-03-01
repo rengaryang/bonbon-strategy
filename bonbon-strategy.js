@@ -19,6 +19,144 @@ const { createButtonCard, createSeparatorCard, createGrid, createSubButton } =
 const { resolveEntity, resolveEntities, onFloor, inArea, hasLabel } =
   await import(`./bonbon-strategy-entities.js?hacstag=${hacstag}`);
 
+
+const hacstag = new URL(import.meta.url).searchParams.get('hacstag');
+
+const { defaultConfig } = await import(
+  `./bonbon-strategy-config.js?hacstag=${hacstag}`
+);
+const { css, getStyles } = await import(
+  `./bonbon-strategy-styles.js?hacstag=${hacstag}`
+);
+const {
+  getWeatherIcon,
+  androidGesturesFix,
+  mergeDeep,
+  getAreaColors,
+  getColorsFromColor,
+} = await import(`./bonbon-strategy-utils.js?hacstag=${hacstag}`);
+const { createButtonCard, createSeparatorCard, createGrid, createSubButton } =
+  await import(`./bonbon-strategy-builders.js?hacstag=${hacstag}`);
+
+const { resolveEntity, resolveEntities, onFloor, inArea, hasLabel } =
+  await import(`./bonbon-strategy-entities.js?hacstag=${hacstag}`);
+
+// ================================================================
+// INLINED: Device Sub-Section Grouping (V4)
+// Groups entities within each section by device_id, then renders
+// each device group as: sub-separator(device name) + grid(cards)
+// ================================================================
+
+/**
+ * Groups resolved entities by device_id.
+ * @returns {{ groups: Array<{deviceId, deviceName, entities}>, noDevice: Array }}
+ */
+function _groupEntitiesByDevice(resolvedEntities) {
+  const deviceMap = new Map();
+  const noDevice = [];
+
+  for (const c of resolvedEntities) {
+    const devId = c.entity?.device_id;
+    if (!devId) {
+      noDevice.push(c);
+      continue;
+    }
+    if (!deviceMap.has(devId)) {
+      const dev = window.__bonbon?.devices?.[devId];
+      deviceMap.set(devId, {
+        deviceId: devId,
+        deviceName: dev?.name_by_user || dev?.name || '',
+        entities: [],
+      });
+    }
+    deviceMap.get(devId).entities.push(c);
+  }
+
+  const groups = [...deviceMap.values()].sort((a, b) =>
+    a.deviceName.localeCompare(b.deviceName)
+  );
+
+  return { groups, noDevice };
+}
+
+/**
+ * Creates a device sub-separator card.
+ * Visually smaller than section separators: 80% font, dimmed color, left indent, no background.
+ */
+function _createDeviceSubSeparator(deviceName, icon) {
+  return {
+    type: 'custom:bubble-card',
+    card_type: 'separator',
+    name: deviceName,
+    icon: icon || 'mdi:devices',
+    sub_button: { main: [] },
+    bonbon_styles: ['bubbleDeviceSubSeparator'],
+  };
+}
+
+/**
+ * Builds cards for a section with device sub-grouping.
+ * For each device group:
+ *   1. A device sub-separator (device name)
+ *   2. A grid of entity cards
+ * Entities without a device go at the end.
+ *
+ * @param {Array} entityList - resolved entities (e.g. area._lights)
+ * @param {Array} categorizedEntityIds - for dedup
+ * @param {Object} sectionConfig - section config
+ * @param {Function} cardBuilder - (c) => card (default: createButtonCard)
+ * @returns {Array} cards array: [subSep, grid, subSep, grid, ...]
+ */
+function _buildDeviceGroupedCards(entityList, categorizedEntityIds, sectionConfig, cardBuilder) {
+  const filtered = entityList.filter((c) => {
+    return (
+      !categorizedEntityIds.includes(c.entity.entity_id) &&
+      categorizedEntityIds.push(c.entity.entity_id)
+    );
+  });
+
+  if (filtered.length === 0) return [];
+
+  const { groups, noDevice } = _groupEntitiesByDevice(filtered);
+  const cards = [];
+  const meaningfulGroups = groups.filter((g) => g.entities.length > 0);
+  const totalDevices = meaningfulGroups.length + (noDevice.length > 0 ? 1 : 0);
+
+  console.log(`[bonbon-device-group] section grouping: ${meaningfulGroups.length} devices, ${noDevice.length} orphan entities`);
+
+  // If only 1 device and 0 orphans, no sub-separators needed (no visual benefit)
+  if (totalDevices <= 1) {
+    const allEntities = [...filtered];
+    cards.push(createGrid(allEntities.map(cardBuilder), sectionConfig));
+    return cards;
+  }
+
+  // Multiple devices: render each as sub-section
+  for (const group of meaningfulGroups) {
+    const label = group.deviceName || `Device ${group.deviceId.slice(0, 8)}`;
+    cards.push(_createDeviceSubSeparator(label, 'mdi:devices'));
+    cards.push(createGrid(group.entities.map(cardBuilder), sectionConfig));
+
+    console.log(`[bonbon-device-group]   device="${label}": ${group.entities.length} entities [${group.entities.map(c => c.entity?.entity_id).join(', ')}]`);
+  }
+
+  // Orphan entities (no device_id)
+  if (noDevice.length > 0) {
+    cards.push(_createDeviceSubSeparator('Other', 'mdi:help-circle-outline'));
+    cards.push(createGrid(noDevice.map(cardBuilder), sectionConfig));
+
+    console.log(`[bonbon-device-group]   orphans: ${noDevice.length} entities`);
+  }
+
+  return cards;
+}
+
+// ================================================================
+// END: Device Sub-Section Grouping
+// ================================================================
+
+
+
 export class BonbonStrategy {
   static async generate(userConfig, hass) {
     const states = hass.states;
@@ -97,6 +235,28 @@ export class BonbonStrategy {
 
       const styles = getStyles(config.styles, isDark);
 
+      // Inject device sub-separator style
+      styles.bubbleDeviceSubSeparator = `
+        ha-card {
+          --card-mod-icon-color: var(--secondary-text-color, #888) !important;
+        }
+        .bubble-name {
+          font-size: 0.85em !important;
+          font-weight: 500 !important;
+          opacity: 0.75;
+        }
+        .bubble-icon-container {
+          --mdc-icon-size: 18px !important;
+          min-width: 28px !important;
+          min-height: 28px !important;
+          margin-left: 8px !important;
+        }
+        .bubble-separator {
+          padding: 2px 0 !important;
+        }
+      `;
+
+
       const normalizeSectionColumn = (column) => {
         if (column === undefined || column === null || column === 'auto') {
           return 'auto';
@@ -149,6 +309,14 @@ export class BonbonStrategy {
 
         return [...groupedSections, ...autoSections];
       };
+
+
+      // Device sub-section grouping: enabled by default
+      // Users can disable via config.views.bonbon_area.device_group: false
+      const areaViewConfig = config?.views?.bonbon_area;
+      const deviceGroupEnabled = areaViewConfig?.device_group !== false;
+
+      console.log(`[bonbon-strategy] device_group=${deviceGroupEnabled}`);
 
       const homeSections = Object.keys(config?.views?.bonbon_home?.sections)
         .filter((key) => {
@@ -603,7 +771,7 @@ export class BonbonStrategy {
                           });
                         section.cards.push(createGrid(envCards, sectionConfig));
                         break;
-                      case 'bonbon_climate':
+                      case 'bonbon_climate': {
                         if (area._climates.length) {
                           if (!sectionConfig.hide_separator) {
                             section.cards.push(
@@ -613,23 +781,21 @@ export class BonbonStrategy {
                               ),
                             );
                           }
-                          const climateCards = area._climates
-                            .filter((c) => {
-                              return (
-                                !area.categorizedEntityIds.includes(
-                                  c.entity.entity_id,
-                                ) &&
-                                area.categorizedEntityIds.push(
-                                  c.entity.entity_id,
-                                )
-                              );
-                            })
-                            .map((c) => createButtonCard(c));
-                          section.cards.push(
-                            createGrid(climateCards, sectionConfig),
-                          );
+                          if (deviceGroupEnabled) {
+                            const grouped = _buildDeviceGroupedCards(
+                              area._climates, area.categorizedEntityIds,
+                              sectionConfig, (c) => createButtonCard(c)
+                            );
+                            grouped.forEach((card) => section.cards.push(card));
+                          } else {
+                            const climateCards = area._climates
+                              .filter((c) => !area.categorizedEntityIds.includes(c.entity.entity_id) && area.categorizedEntityIds.push(c.entity.entity_id))
+                              .map((c) => createButtonCard(c));
+                            section.cards.push(createGrid(climateCards, sectionConfig));
+                          }
                         }
                         break;
+                      }
                       case 'bonbon_lights':
                         if (area._lights.length) {
                           const subButtonLightsInArea = subButtonLights.filter(
@@ -680,24 +846,21 @@ export class BonbonStrategy {
                               ),
                             );
                           }
-                          const lightCards = area._lights
-                            .filter((c) => {
-                              return (
-                                !area.categorizedEntityIds.includes(
-                                  c.entity.entity_id,
-                                ) &&
-                                area.categorizedEntityIds.push(
-                                  c.entity.entity_id,
-                                )
-                              );
-                            })
-                            .map((c) => createButtonCard(c));
-                          section.cards.push(
-                            createGrid(lightCards, sectionConfig),
-                          );
+                          if (deviceGroupEnabled) {
+                            const grouped = _buildDeviceGroupedCards(
+                              area._lights, area.categorizedEntityIds,
+                              sectionConfig, (c) => createButtonCard(c)
+                            );
+                            grouped.forEach((card) => section.cards.push(card));
+                          } else {
+                            const lightCards = area._lights
+                              .filter((c) => !area.categorizedEntityIds.includes(c.entity.entity_id) && area.categorizedEntityIds.push(c.entity.entity_id))
+                              .map((c) => createButtonCard(c));
+                            section.cards.push(createGrid(lightCards, sectionConfig));
+                          }
                         }
                         break;
-                      case 'bonbon_switches':
+                      case 'bonbon_switches': {
                         if (area._switches.length) {
                           if (!sectionConfig.hide_separator) {
                             section.cards.push(
@@ -707,24 +870,22 @@ export class BonbonStrategy {
                               ),
                             );
                           }
-                          const switchCards = area._switches
-                            .filter((c) => {
-                              return (
-                                !area.categorizedEntityIds.includes(
-                                  c.entity.entity_id,
-                                ) &&
-                                area.categorizedEntityIds.push(
-                                  c.entity.entity_id,
-                                )
-                              );
-                            })
-                            .map((c) => createButtonCard(c));
-                          section.cards.push(
-                            createGrid(switchCards, sectionConfig),
-                          );
+                          if (deviceGroupEnabled) {
+                            const grouped = _buildDeviceGroupedCards(
+                              area._switches, area.categorizedEntityIds,
+                              sectionConfig, (c) => createButtonCard(c)
+                            );
+                            grouped.forEach((card) => section.cards.push(card));
+                          } else {
+                            const switchCards = area._switches
+                              .filter((c) => !area.categorizedEntityIds.includes(c.entity.entity_id) && area.categorizedEntityIds.push(c.entity.entity_id))
+                              .map((c) => createButtonCard(c));
+                            section.cards.push(createGrid(switchCards, sectionConfig));
+                          }
                         }
                         break;
-                      case 'bonbon_media':
+                      }
+                      case 'bonbon_media': {
                         if (area._media.length) {
                           if (!sectionConfig.hide_separator) {
                             section.cards.push(
@@ -734,24 +895,22 @@ export class BonbonStrategy {
                               ),
                             );
                           }
-                          const mediaCards = area._media
-                            .filter((c) => {
-                              return (
-                                !area.categorizedEntityIds.includes(
-                                  c.entity.entity_id,
-                                ) &&
-                                area.categorizedEntityIds.push(
-                                  c.entity.entity_id,
-                                )
-                              );
-                            })
-                            .map((c) => createButtonCard(c));
-                          section.cards.push(
-                            createGrid(mediaCards, sectionConfig),
-                          );
+                          if (deviceGroupEnabled) {
+                            const grouped = _buildDeviceGroupedCards(
+                              area._media, area.categorizedEntityIds,
+                              sectionConfig, (c) => createButtonCard(c)
+                            );
+                            grouped.forEach((card) => section.cards.push(card));
+                          } else {
+                            const mediaCards = area._media
+                              .filter((c) => !area.categorizedEntityIds.includes(c.entity.entity_id) && area.categorizedEntityIds.push(c.entity.entity_id))
+                              .map((c) => createButtonCard(c));
+                            section.cards.push(createGrid(mediaCards, sectionConfig));
+                          }
                         }
                         break;
-                      case 'bonbon_openings':
+                      }
+                      case 'bonbon_openings': {
                         if (area._openings.length) {
                           if (!sectionConfig.hide_separator) {
                             section.cards.push(
@@ -761,24 +920,22 @@ export class BonbonStrategy {
                               ),
                             );
                           }
-                          const openingCards = area._openings
-                            .filter((c) => {
-                              return (
-                                !area.categorizedEntityIds.includes(
-                                  c.entity.entity_id,
-                                ) &&
-                                area.categorizedEntityIds.push(
-                                  c.entity.entity_id,
-                                )
-                              );
-                            })
-                            .map((c) => createButtonCard(c));
-                          section.cards.push(
-                            createGrid(openingCards, sectionConfig),
-                          );
+                          if (deviceGroupEnabled) {
+                            const grouped = _buildDeviceGroupedCards(
+                              area._openings, area.categorizedEntityIds,
+                              sectionConfig, (c) => createButtonCard(c)
+                            );
+                            grouped.forEach((card) => section.cards.push(card));
+                          } else {
+                            const openingCards = area._openings
+                              .filter((c) => !area.categorizedEntityIds.includes(c.entity.entity_id) && area.categorizedEntityIds.push(c.entity.entity_id))
+                              .map((c) => createButtonCard(c));
+                            section.cards.push(createGrid(openingCards, sectionConfig));
+                          }
                         }
                         break;
-                      case 'bonbon_covers':
+                      }
+                      case 'bonbon_covers': {
                         if (area._covers.length) {
                           if (!sectionConfig.hide_separator) {
                             section.cards.push(
@@ -788,46 +945,64 @@ export class BonbonStrategy {
                               ),
                             );
                           }
-                          const coverCards = area._covers
-                            .filter((c) => {
-                              return (
+                          if (deviceGroupEnabled) {
+                            const grouped = _buildDeviceGroupedCards(
+                              area._covers, area.categorizedEntityIds,
+                              sectionConfig, (c) => createButtonCard(c)
+                            );
+                            grouped.forEach((card) => section.cards.push(card));
+                          } else {
+                            const coverCards = area._covers
+                              .filter((c) => !area.categorizedEntityIds.includes(c.entity.entity_id) && area.categorizedEntityIds.push(c.entity.entity_id))
+                              .map((c) => createButtonCard(c));
+                            section.cards.push(createGrid(coverCards, sectionConfig));
+                          }
+                        }
+                        break;
+                      }
+                      case 'bonbon_miscellaneous': {
+                        if (deviceGroupEnabled) {
+                          const miscFiltered = area._misc.filter(
+                            (c) => !area.categorizedEntityIds.includes(c.entity.entity_id)
+                          );
+                          if (miscFiltered.length) {
+                            // Re-add to categorized
+                            miscFiltered.forEach((c) => area.categorizedEntityIds.push(c.entity.entity_id));
+                            if (!sectionConfig.hide_separator) {
+                              section.cards.push(
+                                createSeparatorCard(sectionConfig.name, sectionConfig.icon),
+                              );
+                            }
+                            const grouped = _buildDeviceGroupedCards(
+                              // Pass already-filtered list; skip internal dedup by wrapping
+                              // We pass a fresh list and a dummy categorizedEntityIds
+                              miscFiltered,
+                              [], // empty dedup list since we already filtered
+                              sectionConfig,
+                              (c) => createButtonCard(c)
+                            );
+                            grouped.forEach((card) => section.cards.push(card));
+                          }
+                        } else {
+                          const miscCards = area._misc
+                            .filter(
+                              (c) =>
                                 !area.categorizedEntityIds.includes(
                                   c.entity.entity_id,
-                                ) &&
-                                area.categorizedEntityIds.push(
-                                  c.entity.entity_id,
-                                )
-                              );
-                            })
+                                ),
+                            )
                             .map((c) => createButtonCard(c));
-                          section.cards.push(
-                            createGrid(coverCards, sectionConfig),
-                          );
-                        }
-                        break;
-                      case 'bonbon_miscellaneous':
-                        const miscCards = area._misc
-                          .filter(
-                            (c) =>
-                              !area.categorizedEntityIds.includes(
-                                c.entity.entity_id,
-                              ),
-                          )
-                          .map((c) => createButtonCard(c));
-                        if (miscCards.length) {
-                          if (!sectionConfig.hide_separator) {
-                            section.cards.push(
-                              createSeparatorCard(
-                                sectionConfig.name,
-                                sectionConfig.icon,
-                              ),
-                            );
+                          if (miscCards.length) {
+                            if (!sectionConfig.hide_separator) {
+                              section.cards.push(
+                                createSeparatorCard(sectionConfig.name, sectionConfig.icon),
+                              );
+                            }
+                            section.cards.push(createGrid(miscCards, sectionConfig));
                           }
-                          section.cards.push(
-                            createGrid(miscCards, sectionConfig),
-                          );
                         }
                         break;
+                      }
                       default:
                         if (
                           sectionConfig.cards &&
@@ -1181,7 +1356,8 @@ export class BonbonStrategy {
 
 customElements.define('ll-strategy-bonbon-strategy', BonbonStrategy);
 console.info(
-  `%c 🍬 Bonbon %c Strategy `,
+  `%c 🍬 Bonbon %c Strategy %c +DeviceGroup `,
   'background-color: #cfd49b;color: #000;padding: 3px 2px 3px 3px;border-radius: 14px 0 0 14px;font-family: DejaVu Sans,Verdana,Geneva,sans-serif;',
-  'background-color: #8e72c3;color: #fff;padding: 3px 3px 3px 2px;border-radius: 0 14px 14px 0;font-family: DejaVu Sans,Verdana,Geneva,sans-serif;',
+  'background-color: #8e72c3;color: #fff;padding: 3px 3px 3px 2px;border-radius: 0 0 0 0;font-family: DejaVu Sans,Verdana,Geneva,sans-serif;',
+  'background-color: #e8a87c;color: #000;padding: 3px 3px 3px 2px;border-radius: 0 14px 14px 0;font-family: DejaVu Sans,Verdana,Geneva,sans-serif;',
 );
